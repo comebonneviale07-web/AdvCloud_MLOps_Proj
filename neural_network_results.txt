@@ -1,0 +1,31 @@
+Fold 1 macro F1: 0.293
+Fold 2 macro F1: 0.346
+Fold 3 macro F1: 0.356
+Fold 4 macro F1: 0.257
+Fold 5 macro F1: 0.366
+
+Mean training cross-validation macro F1: 0.324
+Fold standard deviation: 0.042
+
+Held-out test results (exploratory):
+              precision    recall  f1-score   support
+
+ Bad weather       0.00      0.00      0.00         4
+    Reckless       0.00      0.00      0.00         1
+        Safe       0.86      0.90      0.88        83
+Safe overall       0.29      0.25      0.27         8
+      Tandem       0.00      0.00      0.00         4
+
+    accuracy                           0.77       100
+   macro avg       0.23      0.23      0.23       100
+weighted avg       0.74      0.77      0.75       100
+
+Confusion matrix:
+              Bad weather  Reckless  Safe  Safe overall  Tandem
+Bad weather             0         0     3             1       0
+Reckless                0         0     0             1       0
+Safe                    3         0    75             3       2
+Safe overall            0         1     5             2       0
+Tandem                  0         0     4             0       0
+
+Saved model artifact: C:\Users\DANIEL\Documents\Daniel\1. ALBERT SCHOOL-PSL\2nd YEAR\MLOps and Model Deployment\Project\ride_classifier.pt

@@ -1,0 +1,54 @@
+Training rides: 400
+Test rides: 100
+
+Test rides per class:
+LABEL
+Safe            83
+Safe overall     8
+Tandem           4
+Bad weather      4
+Reckless         1
+
+============================================================
+Always predict the most common class
+              precision    recall  f1-score   support
+
+ Bad weather       0.00      0.00      0.00         4
+    Reckless       0.00      0.00      0.00         1
+        Safe       0.83      1.00      0.91        83
+Safe overall       0.00      0.00      0.00         8
+      Tandem       0.00      0.00      0.00         4
+
+    accuracy                           0.83       100
+   macro avg       0.17      0.20      0.18       100
+weighted avg       0.69      0.83      0.75       100
+
+Confusion matrix:
+              Bad weather  Reckless  Safe  Safe overall  Tandem
+Bad weather             0         0     4             0       0
+Reckless                0         0     1             0       0
+Safe                    0         0    83             0       0
+Safe overall            0         0     8             0       0
+Tandem                  0         0     4             0       0
+
+============================================================
+Random forest
+              precision    recall  f1-score   support
+
+ Bad weather       0.00      0.00      0.00         4
+    Reckless       0.50      1.00      0.67         1
+        Safe       0.88      0.93      0.90        83
+Safe overall       0.22      0.25      0.24         8
+      Tandem       0.00      0.00      0.00         4
+
+    accuracy                           0.80       100
+   macro avg       0.32      0.44      0.36       100
+weighted avg       0.75      0.80      0.77       100
+
+Confusion matrix:
+              Bad weather  Reckless  Safe  Safe overall  Tandem
+Bad weather             0         0     2             2       0
+Reckless                0         1     0             0       0
+Safe                    0         0    77             5       1
+Safe overall            0         1     5             2       0
+Tandem                  0         0     4             0       0

@@ -1,2 +1,11 @@
 *.parquet
 GBG500_labels.csv
+
+.venv/
+data_inspection.txt
+
+ride_features.csv
+feature_check.txt
+ride_check.txt
+
+ride_classifier.pt
