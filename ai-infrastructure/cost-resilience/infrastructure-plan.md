@@ -35,7 +35,9 @@ separately: `preprocess-results.csv` and Prometheus `model_preprocess_seconds` v
    `--kubelet-insecure-tls`); `load_test.py --concurrency 16 --duration 180` through
    `kubectl port-forward`. Result: average CPU reached 65 % of request (target 60 %) and the HPA
    scaled the API **2 → 6 pods** in a single step (`SuccessfulRescale … New size: 6`); all 6 pods
-   became `1/1 Running`. Evidence: `docs/screenshots/hpa-watch.png`, `kubectl describe hpa`.
+   became `1/1 Running`. After the load ended, the HPA waited its 120 s stabilisation window and
+   **scaled back to 2 pods** (`2 current / 2 desired`, CPU 1 %). Evidence:
+   `docs/screenshots/hpa-watch.png`, `kubectl describe hpa`, `kubectl get pods`.
    **Limitation:** port-forward targets a single pod, so the extra pods received no traffic and the
    average CPU stayed ≈ 62–68 % (one pod pinned at its 1-CPU limit). This validates the scaling
    *decision*; validating load *distribution* needs a LoadBalancer/Ingress (e.g. on GKE).

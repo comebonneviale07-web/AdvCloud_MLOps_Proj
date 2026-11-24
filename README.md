@@ -129,7 +129,9 @@ Web app running in the cluster, calling the API pods:
 ### Autoscaling tested (HPA, metrics-server)
 
 Load test of 16 concurrent clients for 180 s (`load_test.py --tag k8s-hpa`): the HPA scaled the API
-**from 2 to 6 pods** (its maximum) because average CPU exceeded the 60 % target.
+**from 2 to 6 pods** (its maximum) because average CPU exceeded the 60 % target; after the load
+stopped and the 120 s stabilisation window, it **scaled back down to 2 pods** (CPU 1 %, the 4 added
+pods removed, the 2 original pods kept).
 
 ![HPA scaling 2 to 6 pods](docs/screenshots/hpa-watch.png)
 
