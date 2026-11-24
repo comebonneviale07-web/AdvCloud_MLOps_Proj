@@ -23,3 +23,5 @@ __pycache__/
 .coverage
 .ruff_cache/
 .ipynb_checkpoints/
+mlflow.db
+mlartifacts/
