@@ -16,8 +16,8 @@ for both models. This section justifies the decision with the workload's numbers
 | Training tensor size (float32) | 400 × 30 × 4 B = **48 kB** | 400 × 1024 × 6 × 4 B = **9.8 MB** | calculated |
 | Raw data | GBG500.parquet 30.2 MB on disk, 1,529,547 readings | same | from data |
 | Parameters | **4,229** (30·64+64 + 64·32+32 + 32·5+5) | **94,405** | calculated (checked by `tests/unit/test_model.py`) |
-| Training time | *fill: `training_time_s`* | *fill* | measured |
-| Peak GPU memory | *fill: `peak_gpu_mem_mb`* | *fill* | measured |
+| Training time (100 epochs, CPU i7-13620H) | **1.55 s** | *not measured* | measured |
+| Peak memory | 406 MB process RSS (CPU, mostly the PyTorch library); no GPU used | *not measured* | measured |
 
 ## 2. Memory: does the model fit on one GPU?
 
@@ -49,8 +49,8 @@ per step, each GPU sends and receives ≈ 2 × the gradient size (ring all-reduc
   are then of the same order as, or larger than, the computation itself. This is the
   **communication-bound case** from the DDP lab (Task 6: `--width 128 --depth 2 --global-batch 32`),
   where 2 GPUs can be **slower** than 1.
-* Start-up overhead (spawning processes, NCCL init, data sharding) is paid once per run and is
-  likely to exceed the total single-GPU training time (*fill measured value*).
+* Start-up overhead (spawning processes, NCCL init, data sharding) is paid once per run and would
+  exceed the whole measured training time: **1.55 s on a laptop CPU, without any GPU**.
 * The bottleneck of the project is **data** (6 Reckless rides), not compute. Faster epochs do not
   improve macro-F1; more labelled rides would.
 

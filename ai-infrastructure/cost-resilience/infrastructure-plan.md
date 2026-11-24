@@ -24,11 +24,12 @@ separately: `preprocess-results.csv` and Prometheus `model_preprocess_seconds` v
 
 ## 2. Request-scaling strategy
 
-1. **Vertical sizing from the benchmark.** With 1 thread per pod, one pod serves about
-   `1000 / mean_latency_ms` requests/s (batch 1). *Fill with the measured value.*
+1. **Capacity per pod (measured).** One API container (1 uvicorn worker) peaks at **≈94 req/s**
+   (4 concurrent clients, p95 128 ms) and degrades beyond that (16 clients: 82 req/s, p95 289 ms) —
+   `benchmarks/results/load-test.csv`. Planning value with 40 % headroom: **≈55 req/s per pod**.
 2. **Horizontal Pod Autoscaler** (`k8s/hpa.yaml`): 2 → 6 replicas, target 60 % CPU, scale-down
    stabilisation 120 s. 2 replicas minimum, for availability.
-3. **Pods needed** for a target load *R* req/s: `ceil(R / (0.6 × per_pod_throughput))`.
+3. **Pods needed** for a target load *R* req/s: `ceil(R / (0.6 × 94))` = `ceil(R / 56)`; e.g. 200 req/s → 4 pods, the HPA maximum of 6 pods ≈ 340 req/s.
 4. **Batch endpoint** `/predict/batch` (up to 256 rides) for offline scoring: amortises HTTP/JSON overhead.
 5. **Test it** (required before claiming it): run `load_test.py --concurrency 1 4 16 32` against
    the local cluster, then in parallel `kubectl get hpa -n trajclf -w`. Save the output and a Grafana
