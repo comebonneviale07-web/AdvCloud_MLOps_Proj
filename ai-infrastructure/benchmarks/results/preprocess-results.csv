@@ -1,0 +1,2 @@
+mode,rides,calls,mean_readings_per_ride,mean_ms,p50_ms,p95_ms
+aggregate,100,280,3048.15,0.7116814281159479,0.7054499874357134,0.9415400010766464
