@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: minio-data, namespace: trajclf }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 5Gi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: minio, namespace: trajclf }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: minio } }
+  template:
+    metadata: { labels: { app: minio } }
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2024-10-13T13-34-11Z
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - { name: MINIO_ROOT_USER, valueFrom: { secretKeyRef: { name: s3-credentials, key: AWS_ACCESS_KEY_ID } } }
+            - { name: MINIO_ROOT_PASSWORD, valueFrom: { secretKeyRef: { name: s3-credentials, key: AWS_SECRET_ACCESS_KEY } } }
+          ports: [{ containerPort: 9000 }, { containerPort: 9001 }]
+          volumeMounts: [{ name: data, mountPath: /data }]
+          readinessProbe: { httpGet: { path: /minio/health/ready, port: 9000 } }
+      volumes: [{ name: data, persistentVolumeClaim: { claimName: minio-data } }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: minio, namespace: trajclf }
+spec:
+  selector: { app: minio }
+  ports: [{ name: s3, port: 9000 }, { name: console, port: 9001 }]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: minio-create-bucket, namespace: trajclf }
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: minio/mc:RELEASE.2024-10-08T09-37-26Z
+          envFrom: [{ secretRef: { name: s3-credentials } }]
+          command: ["sh", "-c", "mc alias set local http://minio:9000 $AWS_ACCESS_KEY_ID $AWS_SECRET_ACCESS_KEY && mc mb --ignore-existing local/mlflow && mc mb --ignore-existing local/data"]

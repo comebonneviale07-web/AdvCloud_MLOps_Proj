@@ -7,6 +7,7 @@ from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
 
 PROJECT_DIR = Path(__file__).resolve().parent
+DATA_DIR = PROJECT_DIR.parent / "data" / "raw"  # datasets live in data/raw (git-ignored)
 
 data = pd.read_csv(PROJECT_DIR / "ride_features.csv")
 

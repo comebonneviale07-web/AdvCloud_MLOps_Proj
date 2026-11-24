@@ -3,10 +3,11 @@ from pathlib import Path
 import pandas as pd
 
 PROJECT_DIR = Path(__file__).resolve().parent
+DATA_DIR = PROJECT_DIR.parent / "data" / "raw"  # datasets live in data/raw (git-ignored)
 SENSORS = ["ax", "ay", "az", "rx", "ry", "rz"]
 
-rides = pd.read_parquet(PROJECT_DIR / "GBG500.parquet")
-labels = pd.read_csv(PROJECT_DIR / "GBG500_labels.csv")
+rides = pd.read_parquet(DATA_DIR / "GBG500.parquet")
+labels = pd.read_csv(DATA_DIR / "GBG500_labels.csv")
 
 # Average sensor readings that share a ride ID and timestamp.
 rides = (

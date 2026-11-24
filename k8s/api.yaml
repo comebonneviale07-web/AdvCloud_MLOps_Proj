@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trajclf-api
+  namespace: trajclf
+  labels: { app: trajclf-api }
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5          # keeps old ReplicaSets for `kubectl rollout undo`
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }   # zero-downtime deploy
+  selector: { matchLabels: { app: trajclf-api } }
+  template:
+    metadata:
+      labels: { app: trajclf-api }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "8000", prometheus.io/path: /metrics }
+    spec:
+      containers:
+        - name: api
+          image: yourname/trajclf-api:latest   # replaced by CD with the commit SHA tag
+          ports: [{ containerPort: 8000 }]
+          envFrom: [{ secretRef: { name: s3-credentials } }]
+          env:
+            - { name: MLFLOW_TRACKING_URI, value: "http://mlflow:5000" }
+            - { name: MLFLOW_S3_ENDPOINT_URL, value: "http://minio:9000" }
+            - { name: MODEL_NAME, value: trajectory-classifier }
+            - { name: MODEL_ALIAS, value: champion }
+            - { name: MODEL_RUNTIME, value: torch }   # torch | onnx | onnx-int8
+            - { name: NUM_THREADS, value: "1" }       # 1 thread per pod, scale with replicas
+          resources:
+            requests: { cpu: 250m, memory: 384Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          readinessProbe: { httpGet: { path: /health, port: 8000 }, initialDelaySeconds: 10, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /health, port: 8000 }, initialDelaySeconds: 30, periodSeconds: 15 }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: trajclf-api, namespace: trajclf }
+spec:
+  type: LoadBalancer        # Docker Desktop exposes it on localhost:8000
+  selector: { app: trajclf-api }
+  ports: [{ port: 8000, targetPort: 8000 }]

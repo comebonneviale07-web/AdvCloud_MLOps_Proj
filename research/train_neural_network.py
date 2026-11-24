@@ -12,6 +12,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 PROJECT_DIR = Path(__file__).resolve().parent
+DATA_DIR = PROJECT_DIR.parent / "data" / "raw"  # datasets live in data/raw (git-ignored)
 SEED = 42
 EPOCHS = 100
 BATCH_SIZE = 32

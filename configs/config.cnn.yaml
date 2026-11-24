@@ -1,0 +1,39 @@
+# Sequence variant: 1D-CNN on the whole ride resampled to 1024 steps x 6 sensors.
+# TRAJCLF_CONFIG=configs/config.cnn.yaml python -m trajclf.train
+project:
+  seed: 42
+  # Alphabetical order = LabelEncoder order used in research/ -> identical stratified split
+  labels: ["Bad weather", "Reckless", "Safe", "Safe overall", "Tandem"]
+
+data:
+  raw_path: data/raw/GBG500.parquet        # from Project.zip (Inside), git-ignored
+  labels_path: data/raw/GBG500_labels.csv
+  labels_id_column: RIDE_ID
+  labels_label_column: LABEL
+  processed_dir: data/processed-cnn
+  id_column: ride_id
+  time_column: time_index
+  label_column: LABEL
+  feature_columns: [ax, ay, az, rx, ry, rz]   # accelerometer + gyroscope
+  mode: sequence
+  seq_len: 1024            # only used in sequence mode
+  test_size: 0.2           # same held-out 100 rides as research/train_baseline.py
+  val_size: 0.0            # 0 = no validation split (model selection by CV, as in research/)
+
+model:
+  type: cnn
+  hidden: 64
+  dropout: 0.3
+
+train:
+  epochs: 40
+  batch_size: 32
+  lr: 0.001
+  num_workers: 0
+  class_weighted_loss: true   # Reckless = 6 rides out of 500
+
+mlflow:
+  tracking_uri: http://localhost:5000      # override with MLFLOW_TRACKING_URI
+  experiment: trajectory-classification
+  registered_model: trajectory-classifier
+  champion_alias: champion
