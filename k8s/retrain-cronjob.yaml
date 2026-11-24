@@ -12,7 +12,7 @@ spec:
           restartPolicy: Never
           containers:
             - name: train
-              image: yourname/trajclf-train:latest
+              image: comebnvl/trajclf-train:latest
               envFrom: [{ secretRef: { name: s3-credentials } }]
               env:
                 - { name: MLFLOW_TRACKING_URI, value: "http://mlflow:5000" }

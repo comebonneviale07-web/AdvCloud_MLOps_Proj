@@ -9,7 +9,7 @@ spec:
     spec:
       containers:
         - name: webapp
-          image: yourname/trajclf-webapp:latest
+          image: comebnvl/trajclf-webapp:latest
           env: [{ name: API_URL, value: "http://trajclf-api:8000" }]
           ports: [{ containerPort: 8501 }]
 ---

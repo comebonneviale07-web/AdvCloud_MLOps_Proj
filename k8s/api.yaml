@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: yourname/trajclf-api:latest   # replaced by CD with the commit SHA tag
+          image: comebnvl/trajclf-api:latest   # replaced by CD with the commit SHA tag
           ports: [{ containerPort: 8000 }]
           envFrom: [{ secretRef: { name: s3-credentials } }]
           env:

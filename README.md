@@ -49,7 +49,7 @@ Team: *Name 1, Name 2, Name 3, Name 4, Name 5*
 ```bash
 pip install -r requirements-dev.txt
 # put Project.zip content in data/raw/  (GBG500.parquet, GBG500_labels.csv) — git-ignored
-docker compose up -d minio minio-init mlflow     # MinIO :9001, MLflow :5000
+docker compose up -d minio mlflow     # MinIO :9001, MLflow :5000
 make data train                                  # preprocess, train, log, register, promote
 docker compose up -d                             # API :8000/docs, web app :8501, Grafana :3000
 python scripts/export_sample_rides.py            # test rides as CSV for the web app
@@ -71,6 +71,10 @@ helm install monitoring prometheus-community/kube-prometheus-stack -n monitoring
 The CD workflow runs these steps on a self-hosted runner. Configure repository secrets:
 `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `MINIO_USER`, `MINIO_PASSWORD`.
 
+> **Note on MinIO images.** MinIO withdrew its public images from Docker Hub and quay.io in September
+> 2026, so `minio/minio` and `minio/mc` no longer pull. The stack uses `cgr.dev/chainguard/minio`
+> (a build of the same MinIO server) and creates buckets with boto3 instead of `mc`.
+
 ## Tests
 
 ```bash
@@ -80,13 +84,56 @@ API_URL=http://localhost:8000 pytest -m e2e   # against a running API
 
 ## Docker images
 
-* `docker.io/<user>/trajclf-api`
-* `docker.io/<user>/trajclf-webapp`
-* `docker.io/<user>/trajclf-train`
+* API: https://hub.docker.com/r/comebnvl/trajclf-api
+* Web app: https://hub.docker.com/r/comebnvl/trajclf-webapp
+* Training / retraining job: https://hub.docker.com/r/comebnvl/trajclf-train
 
 ## Results
 
-*Add screenshots from the production environment: Swagger, MLflow runs/registry, Grafana, `kubectl get pods,hpa`.*
+### Model quality (100 held-out test rides, same split as `docs/FINDINGS.md`)
+
+| Model | Macro-F1 | Accuracy | Notes |
+|---|---|---|---|
+| Random guess | 0.069 | — | logged by `train.py` |
+| Always "Safe" | 0.18 | 0.83 | research baseline |
+| Random forest (research) | 0.36 | 0.80 | `research/train_baseline.py` |
+| **RideMLP — MLflow `trajectory-classifier` v1 (served)** | **0.317** | 0.80 | 4,229 parameters, 1.55 s CPU training |
+
+The served model beats random and the majority baseline. With only 6 Reckless rides in the whole
+dataset (1 in the test split), per-class scores for minority classes remain unreliable.
+
+### Experiment tracking and model storage
+
+Run tracked in MLflow; the trained model is registered as `trajectory-classifier` **v1** (Models column) with alias `champion`:
+
+![MLflow runs](docs/screenshots/mlflow-runs.png)
+
+**Model artifacts stored on MinIO (S3 bucket `mlflow`)**
+
+![MinIO bucket](docs/screenshots/minio-bucket.png)
+
+### API (FastAPI + Swagger)
+
+![Swagger](docs/screenshots/swagger.png)
+
+### Production on Kubernetes (Docker Desktop)
+
+`kubectl apply -k k8s/` — MinIO, MLflow, API (2 replicas, rolling update, HPA 2→6), web app, retraining CronJob:
+
+![Kubernetes pods](docs/screenshots/k8s-pods.png)
+
+Web app running in the cluster, calling the API pods:
+
+![Web app on Kubernetes](docs/screenshots/webapp-k8s.png)
+
+### Monitoring (Prometheus + Grafana) under load
+
+![Prometheus targets](docs/screenshots/prometheus-targets.png)
+
+![Grafana dashboard under load](docs/screenshots/grafana.png)
+
+Load test (one API container, `ai-infrastructure/benchmarks/load_test.py`): ≈94 req/s peak at 4
+concurrent clients, 0 errors over ≈4,500 requests. Details: [`ai-infrastructure/README.md`](ai-infrastructure/README.md).
 
 ## Repository layout
 

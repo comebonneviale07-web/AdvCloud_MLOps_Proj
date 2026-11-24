@@ -11,6 +11,6 @@ resources:
   - webapp.yaml
   - retrain-cronjob.yaml
 images:
-  - { name: yourname/trajclf-api, newTag: latest }
-  - { name: yourname/trajclf-webapp, newTag: latest }
-  - { name: yourname/trajclf-train, newTag: latest }
+  - { name: comebnvl/trajclf-api, newTag: latest }
+  - { name: comebnvl/trajclf-webapp, newTag: latest }
+  - { name: comebnvl/trajclf-train, newTag: latest }

@@ -45,7 +45,7 @@ services:
 
   api:
     build: { context: ., dockerfile: Dockerfile.api }
-    image: ${DOCKERHUB_USER:-yourname}/trajclf-api:latest
+    image: ${DOCKERHUB_USER:-comebnvl}/trajclf-api:latest
     depends_on: [mlflow]
     environment:
       <<: *s3-env
@@ -57,7 +57,7 @@ services:
 
   webapp:
     build: { context: ., dockerfile: Dockerfile.webapp }
-    image: ${DOCKERHUB_USER:-yourname}/trajclf-webapp:latest
+    image: ${DOCKERHUB_USER:-comebnvl}/trajclf-webapp:latest
     depends_on: [api]
     environment: { API_URL: "http://api:8000" }
     ports: ["8501:8501"]
