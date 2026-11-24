@@ -14,7 +14,7 @@ Status legend: **[implemented]** exists in this repo; **[tested]** we ran it and
 | Model runtime | TorchScript (baseline) or ONNX Runtime (FP32 / INT8), selected with `MODEL_RUNTIME` | choose the fastest one **measured** in `optimization/comparison.ipynb` | implemented |
 | Model source | MLflow Registry alias `@champion`, bundle in S3 (MinIO; GCS in cloud) | versioned, rollback = move alias | implemented |
 | Hardware | **CPU pods**, 1 intra-op thread each | 4k–94k-parameter model: a GPU would sit idle (see §4) | proposed |
-| Orchestration | Kubernetes Deployment, 2+ replicas, rolling update `maxUnavailable: 0` | zero-downtime deploys, self-healing | implemented (local K8s) |
+| Orchestration | Kubernetes Deployment, 2+ replicas, rolling update `maxUnavailable: 0` | zero-downtime deploys, self-healing | **tested** (local K8s: rolling restart replaced crashing pods with no gap) |
 
 Request path: client → Load Balancer → API pod → preprocessing (30 statistics or resampling)
 → model forward → JSON response. For the MLP, preprocessing and JSON parsing of a ride
@@ -31,11 +31,15 @@ separately: `preprocess-results.csv` and Prometheus `model_preprocess_seconds` v
    stabilisation 120 s. 2 replicas minimum, for availability.
 3. **Pods needed** for a target load *R* req/s: `ceil(R / (0.6 × 94))` = `ceil(R / 56)`; e.g. 200 req/s → 4 pods, the HPA maximum of 6 pods ≈ 340 req/s.
 4. **Batch endpoint** `/predict/batch` (up to 256 rides) for offline scoring: amortises HTTP/JSON overhead.
-5. **Test it** (required before claiming it): run `load_test.py --concurrency 1 4 16 32` against
-   the local cluster, then in parallel `kubectl get hpa -n trajclf -w`. Save the output and a Grafana
-   screenshot. Docker Desktop needs metrics-server:
-   `kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml`
-   then patch `--kubelet-insecure-tls`.
+5. **Tested on the local cluster (Docker Desktop, kind, 1 node).** metrics-server installed (with
+   `--kubelet-insecure-tls`); `load_test.py --concurrency 16 --duration 180` through
+   `kubectl port-forward`. Result: average CPU reached 65 % of request (target 60 %) and the HPA
+   scaled the API **2 → 6 pods** in a single step (`SuccessfulRescale … New size: 6`); all 6 pods
+   became `1/1 Running`. Evidence: `docs/screenshots/hpa-watch.png`, `kubectl describe hpa`.
+   **Limitation:** port-forward targets a single pod, so the extra pods received no traffic and the
+   average CPU stayed ≈ 62–68 % (one pod pinned at its 1-CPU limit). This validates the scaling
+   *decision*; validating load *distribution* needs a LoadBalancer/Ingress (e.g. on GKE).
+   Memory per API pod measured by `kubectl top`: ≈ 325 MiB (consistent with the 331 MB benchmark RSS).
 
 ## 3. Monitoring (4 layers)
 

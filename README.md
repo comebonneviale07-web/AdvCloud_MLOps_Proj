@@ -126,6 +126,27 @@ Web app running in the cluster, calling the API pods:
 
 ![Web app on Kubernetes](docs/screenshots/webapp-k8s.png)
 
+### Autoscaling tested (HPA, metrics-server)
+
+Load test of 16 concurrent clients for 180 s (`load_test.py --tag k8s-hpa`): the HPA scaled the API
+**from 2 to 6 pods** (its maximum) because average CPU exceeded the 60 % target.
+
+![HPA scaling 2 to 6 pods](docs/screenshots/hpa-watch.png)
+
+`kubectl describe hpa trajclf-api -n trajclf` (excerpt):
+
+```text
+Metrics:  resource cpu on pods (as a percentage of request):  65% (164m) / 60%
+Min replicas: 2   Max replicas: 6
+Deployment pods:  6 current / 6 desired
+Events:
+  Normal  SuccessfulRescale  horizontal-pod-autoscaler  New size: 6; reason: cpu resource utilization (percentage of request) above target
+```
+
+Limitation: the load came through `kubectl port-forward`, which sends all traffic to **one** pod; that
+pod ran at its 1-CPU limit (6 × 250m requested × 65 % ≈ 1 CPU) while the new pods stayed idle. The
+test validates the **scaling decision**, not load distribution, which needs a real load balancer.
+
 ### Monitoring (Prometheus + Grafana) under load
 
 ![Prometheus targets](docs/screenshots/prometheus-targets.png)

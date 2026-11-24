@@ -10,7 +10,7 @@ Anything still marked *to measure* has not been measured.
 | 2 | Baseline benchmark | `benchmarks/benchmark.py`, `load_test.py` → [`benchmarks/results/`](benchmarks/results/) | **done (measured)**: model-level + HTTP end-to-end |
 | 3 | Optimization (ONNX Runtime FP32 + static INT8) | `optimization/quantize.py`, same benchmark | **done (measured)**: ONNX FP32 retained |
 | 4 | Distributed-training decision | [`distributed-training/technical-analysis.md`](distributed-training/technical-analysis.md) | **done**: no DDP/FSDP/ZeRO (1.55 s CPU training, 68 kB model states) |
-| 5 | Scaling, monitoring, cost, rollback | [`cost-resilience/infrastructure-plan.md`](cost-resilience/infrastructure-plan.md), [`architecture/proposed-system.png`](architecture/proposed-system.png) | design + cost ≈ $90/month · HPA and rollback *to test* |
+| 5 | Scaling, monitoring, cost, rollback | [`cost-resilience/infrastructure-plan.md`](cost-resilience/infrastructure-plan.md), [`architecture/proposed-system.png`](architecture/proposed-system.png) | design + cost ≈ $90/month · **HPA tested (2 → 6 pods)** · rollback drill *to run* |
 
 ## Step 1 — Inventory
 
@@ -117,5 +117,5 @@ python ai-infrastructure/architecture/diagrams.py               # regenerate the
 | Run benchmark.ipynb on Colab (CPU + T4), commit `benchmarks/results/` | *name* | ☐ |
 | Run comparison.ipynb, write the interpretation | *name* | ☐ |
 | Fill training time / GPU memory in technical-analysis.md | *name* | ☐ |
-| Load test + HPA test on local K8s, Grafana screenshot | *name* | ☐ |
+| Load test + HPA test on local K8s, Grafana screenshot | *name* | ☑ |
 | Rollback drill (bad image + bad model), record time-to-recover | *name* | ☐ |
