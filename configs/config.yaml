@@ -29,6 +29,7 @@ train:
   epochs: 100
   batch_size: 32
   lr: 0.001
+  weight_decay: 0.0          # L2 regularisation (Adam), tuned in scripts/sweep.py
   num_workers: 0
   class_weighted_loss: true   # Reckless = 6 rides out of 500
 
