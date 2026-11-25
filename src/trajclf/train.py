@@ -256,12 +256,22 @@ def selection_metric(metrics: dict) -> float | None:
     return metrics.get("cv_macro_f1_mean")
 
 
+# Runs whose CV is leak-free (standardisation re-fitted inside each fold) carry this tag.
+CV_PROTOCOL = "per-fold-standardisation"
+
+
 def promote_if_better(client, name: str, alias: str, version: str, score: float) -> bool:
-    """Move the champion alias to ``version`` if its CV macro-F1 beats the current champion's."""
+    """Move the champion alias to ``version`` if its CV macro-F1 beats the current champion's.
+
+    Only leak-free CV scores are comparable: a champion selected with the old protocol (scaling
+    fitted on all training rides, so the held-out fold leaked into it) has an inflated score and
+    is replaced by the first leak-free run.
+    """
     try:
         champ = client.get_model_version_by_alias(name, alias)
-        # a champion trained before CV existed has no comparable score -> replace it
-        champ_f1 = client.get_run(champ.run_id).data.metrics.get("cv_macro_f1_mean", -1.0)
+        run = client.get_run(champ.run_id)
+        leak_free = run.data.tags.get("cv_protocol") == CV_PROTOCOL
+        champ_f1 = run.data.metrics.get("cv_macro_f1_mean", -1.0) if leak_free else -1.0
     except Exception:  # no champion yet
         champ_f1 = -1.0
     if score > champ_f1:
@@ -328,6 +338,8 @@ def main() -> None:
             mlflow.log_params({"data.n_rides": rs["n_rides"], "data.n_readings": rs["n_readings"],
                                "data.raw_file_mb": rs["raw_file_mb"]})
         mlflow.set_tags({f"hw.{k}": v for k, v in hw.items()})
+        if args.cv:
+            mlflow.set_tag("cv_protocol", CV_PROTOCOL)
         cv = cross_validate(cfg, splits, device, args.cv, pre) if args.cv else {}
         set_seed(cfg["project"]["seed"])
         model, stats = train(cfg, splits, device, log=lambda mt, step: mlflow.log_metrics(mt, step=step))

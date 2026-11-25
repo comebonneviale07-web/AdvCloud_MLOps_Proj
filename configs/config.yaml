@@ -16,6 +16,7 @@ data:
   label_column: LABEL
   feature_columns: [ax, ay, az, rx, ry, rz]   # accelerometer + gyroscope
   mode: aggregate          # aggregate (30 stats) | aggregate_plus (104 stats) | sequence (time series)
+                           # (sweep 25/11: aggregate_plus -> CV 0.253 vs 0.323, so aggregate is kept)
   seq_len: 1024            # only used in sequence mode
   test_size: 0.2           # same held-out 100 rides as research/train_baseline.py
   val_size: 0.0            # 0 = no validation split (model selection by CV, as in research/)
@@ -33,6 +34,7 @@ train:
   num_workers: 0
   class_weighted_loss: true   # Reckless = 6 rides out of 500
   early_stopping_patience: 0  # >0: stop when the loss on held-out training rides stops improving
+                              # (sweep 25/11: 20 -> CV 0.274 vs 0.323 without, so off; see README)
   early_stopping_fraction: 0.15  # share of the training rides held out for that decision
 
 mlflow:

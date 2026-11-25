@@ -20,14 +20,14 @@ Team: *Name 1, Name 2, Name 3, Name 4, Name 5*
 | Data extraction & checks | pandas / pyarrow | `research/inspect_data.py`, `research/check_rides.py` |
 | Preprocessing | duplicates averaged, NaN-aware stats, stratified ride split (80/20, seed 42) | `src/trajclf/data.py` |
 | Model | PyTorch — `mlp` (30 aggregate features, default) or `cnn` (1024×6 sequence) | `src/trajclf/model.py`, `configs/*.yaml` |
-| Tracking & registry | MLflow; best model gets alias `@champion` (macro-F1 gate) | `src/trajclf/train.py` |
+| Tracking & registry | MLflow; best model gets alias `@champion` (gate: leak-free 5-fold CV macro-F1, the test split never decides) | `src/trajclf/train.py` |
 | Model storage | MinIO (S3) as MLflow artifact store; bundle = TorchScript + ONNX + preprocessing | `src/trajclf/bundle.py` |
 | API | FastAPI + Swagger (`/docs`), Prometheus metrics (`/metrics`) | `src/trajclf/api/main.py` |
 | Web app | Streamlit: upload a ride CSV, see signals + prediction | `webapp/app.py` |
 | Containers | Docker images api / webapp / train | `Dockerfile.*`, `docker-compose.yml` |
 | Production | Docker Desktop Kubernetes: Deployment, Service, HPA, CronJob | `k8s/` |
 | CI/CD | GitHub Actions: lint + tests → images on Docker Hub → deploy (self-hosted runner) with auto-rollback | `.github/workflows/` |
-| Retraining pipeline (bonus) | data → train → register → promote if better → redeploy | `.github/workflows/retrain.yml`, `pipelines/dags/`, `scripts/retrain.sh` |
+| Retraining pipeline (bonus) | data from S3 → train → register → promote if better → redeploy | `.github/workflows/retrain.yml`, `scripts/data_s3.py`, `pipelines/dags/` |
 | Monitoring (bonus) | Prometheus + Grafana dashboard (latency, errors, class mix, confidence, input drift) | `monitoring/` |
 
 ## Technical choices
@@ -97,20 +97,60 @@ API_URL=http://localhost:8000 pytest -m e2e   # against a running API
 | Random guess | 0.069 | — | logged by `train.py` |
 | Always "Safe" | 0.18 | 0.83 | research baseline |
 | Random forest (research) | 0.36 | 0.80 | `research/train_baseline.py` |
-| **RideMLP — MLflow `trajectory-classifier` v1 (served)** | **0.317** | 0.80 | 4,229 parameters, 1.55 s CPU training |
+| **RideMLP — MLflow `trajectory-classifier` v14 `@champion` (served)** | **0.230** | — | 4,229 parameters, leak-free 5-fold CV macro-F1 **0.323**, train 0.90 |
 
-The served model beats random and the majority baseline. With only 6 Reckless rides in the whole
-dataset (1 in the test split), per-class scores for minority classes remain unreliable.
+The served model is 3× better than random on the test rides and well above it in cross-validation
+(0.32 vs 0.07). With only 6 Reckless rides in the whole dataset (1 in the test split), the 100-ride
+test score is noisy (0.23–0.32 across runs of the same MLP), which is why the champion is chosen on
+5-fold cross-validation over the 400 training rides and the test split is only reported.
 
 ### Experiment tracking and model storage
 
-Run tracked in MLflow; the trained model is registered as `trajectory-classifier` **v1** (Models column) with alias `champion`:
+Every run is tracked in MLflow (parameters, per-epoch curves, CV / train / test scores, hardware) and
+registered as a new version of `trajectory-classifier`; only the best one carries the alias `champion`
+(first runs shown below, 18 versions today):
 
 ![MLflow runs](docs/screenshots/mlflow-runs.png)
 
 **Model artifacts stored on MinIO (S3 bucket `mlflow`)**
 
 ![MinIO bucket](docs/screenshots/minio-bucket.png)
+
+### Data leakage found and fixed
+
+Two leaks inflated the selection score:
+1. **Scaling inside cross-validation** — the mean/std used to standardise features were fitted on all
+   400 training rides, so each held-out fold had already been "seen" by the scaler. Fix: the scaler is
+   re-fitted inside every fold on the fitting rides only (`fold_standardise`, `cross_validate`).
+2. **Test split used to pick the champion** when no CV score was available. Fix: promotion uses the
+   CV score only (`selection_metric`); a run without CV is registered but never promoted.
+
+Same model, same seed, before/after the fix: CV macro-F1 **0.333 → 0.323**. Old champions selected
+with the leaky protocol have no `cv_protocol` tag and can no longer block a leak-free model
+(`promote_if_better`). Regression tests: `tests/unit/test_selection_and_cv.py`.
+
+### Overfitting experiments (sweep, leak-free CV)
+
+The baseline MLP learns the training rides by heart (train 0.90 vs CV 0.32). Two remedies were
+tested with `scripts/sweep.py` (each variant = one MLflow run): **early stopping** (15 % of the
+training rides held out, patience 20, best epoch restored) and **104 driving-style features**
+(`data.mode=aggregate_plus`: acceleration/rotation magnitudes, percentiles, jerk, peak rate).
+
+![Sweep results](docs/screenshots/sweep-overfitting.png)
+
+| Variant | CV macro-F1 (selection) | Train macro-F1 | Gap |
+|---|---|---|---|
+| **baseline (champion)** | **0.323** | 0.90 | 0.58 |
+| early-stop | 0.274 | 0.45 | 0.17 |
+| features-plus | 0.253 | 0.99 | 0.74 |
+| features-plus + early-stop | 0.297 | 0.45 | 0.16 |
+| features-plus + early-stop + dropout 0.5 / weight decay 1e-3 | 0.282 | 0.39 | 0.11 |
+
+Early stopping shrinks the gap but stops too early (≈60 rides fewer to learn from, and a noisy stop
+signal with 4–5 Reckless rides): the model underfits and generalises worse. More features give the
+MLP more capacity to memorise. **Conclusion: the ceiling comes from the data (500 rides, 6 Reckless),
+not from the training settings**; the baseline stays champion and both options remain available in
+`configs/config.yaml` (`data.mode`, `train.early_stopping_patience`) for future data.
 
 ### API (FastAPI + Swagger)
 
@@ -122,6 +162,38 @@ Every pull request runs `.github/workflows/ci.yml`: ruff lint + unit/integration
 API) on a clean Ubuntu runner. Docker images are built and pushed to Docker Hub only on `main`.
 
 ![CI checks on pull request #1](docs/screenshots/ci-checks.png)
+
+### Continuous deployment with automatic rollback
+
+`.github/workflows/cd.yml` runs after every green CI on `main`, on a self-hosted Windows runner that
+can reach the local cluster: `kubectl apply -k k8s/` with the images tagged with the **commit SHA**
+(one single rollout, traceable with `kubectl rollout history`), wait for the rollout, smoke test
+`/health` and `/model`, and `kubectl rollout undo` if any step fails.
+
+![CI then CD green](docs/screenshots/cicd-green.png)
+
+The rollback was exercised for real: the ~600 MB API image (PyTorch) took longer to pull than the
+rollout deadline, the CD failed and Kubernetes went back to the previous version with **no downtime**
+(`maxUnavailable: 0`, the old pods kept serving). Fix: `progressDeadlineSeconds: 1800` and a single
+SHA-tagged rollout instead of `:latest` followed by `set image`. Next step: an ONNX-only API image
+(no PyTorch, ≈4× smaller) to make pulls fast.
+
+![Automatic rollback](docs/screenshots/cd-rollback.png)
+
+### Retraining pipeline (bonus 1)
+
+`.github/workflows/retrain.yml` — button in the Actions tab or every Monday 03:00 UTC, on the
+self-hosted runner:
+
+1. download the dataset from the S3 bucket `data/gbg500` (MinIO, `scripts/data_s3.py`);
+2. preprocess, retrain with 5-fold CV, log the run and register a new model version in MLflow;
+3. move `@champion` only if the CV macro-F1 beats the current champion;
+4. if promoted, `kubectl rollout restart` the API, which loads the new champion from MLflow
+   (rollback if the rollout fails).
+
+First run (`retrain-1`, 9 min 56 s, of which ~8 min installing the Python environment once):
+version 13 registered, CV 0.323, **not promoted** (not better than the champion), so nothing was
+redeployed — the expected behaviour. New data only needs `python scripts/data_s3.py upload`.
 
 ### Production on Kubernetes (Docker Desktop)
 

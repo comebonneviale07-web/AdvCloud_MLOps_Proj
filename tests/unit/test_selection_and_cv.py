@@ -22,3 +22,28 @@ def test_fold_standardise_ignores_held_out_rides():
 def test_selection_never_uses_test_score():
     assert selection_metric({"test_macro_f1": 0.99}) is None
     assert selection_metric({"cv_macro_f1_mean": 0.3, "test_macro_f1": 0.99}) == 0.3
+
+
+def test_leaky_champion_is_replaced_by_leak_free_run():
+    """An old champion whose CV leaked (no cv_protocol tag) cannot block a leak-free model."""
+    from types import SimpleNamespace
+
+    from trajclf.train import CV_PROTOCOL, promote_if_better
+
+    class FakeClient:
+        def __init__(self, tags):
+            self.tags, self.alias_to = tags, None
+
+        def get_model_version_by_alias(self, name, alias):
+            return SimpleNamespace(run_id="old")
+
+        def get_run(self, run_id):
+            return SimpleNamespace(data=SimpleNamespace(metrics={"cv_macro_f1_mean": 0.333}, tags=self.tags))
+
+        def set_registered_model_alias(self, name, alias, version):
+            self.alias_to = version
+
+    leaky = FakeClient(tags={})
+    assert promote_if_better(leaky, "m", "champion", "13", 0.323) and leaky.alias_to == "13"
+    clean = FakeClient(tags={"cv_protocol": CV_PROTOCOL})
+    assert not promote_if_better(clean, "m", "champion", "13", 0.323) and clean.alias_to is None
