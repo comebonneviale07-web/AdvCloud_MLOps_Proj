@@ -15,7 +15,7 @@ data:
   time_column: time_index
   label_column: LABEL
   feature_columns: [ax, ay, az, rx, ry, rz]   # accelerometer + gyroscope
-  mode: aggregate          # aggregate (30 stats) | sequence (resampled time series)
+  mode: aggregate          # aggregate (30 stats) | aggregate_plus (104 stats) | sequence (time series)
   seq_len: 1024            # only used in sequence mode
   test_size: 0.2           # same held-out 100 rides as research/train_baseline.py
   val_size: 0.0            # 0 = no validation split (model selection by CV, as in research/)
@@ -32,6 +32,8 @@ train:
   weight_decay: 0.0          # L2 regularisation (Adam), tuned in scripts/sweep.py
   num_workers: 0
   class_weighted_loss: true   # Reckless = 6 rides out of 500
+  early_stopping_patience: 0  # >0: stop when the loss on held-out training rides stops improving
+  early_stopping_fraction: 0.15  # share of the training rides held out for that decision
 
 mlflow:
   tracking_uri: http://localhost:5000      # override with MLFLOW_TRACKING_URI

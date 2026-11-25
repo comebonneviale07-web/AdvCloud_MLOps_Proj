@@ -2,6 +2,8 @@
 
     python scripts/sweep.py                 # MLP variants (configs/config.yaml)
     python scripts/sweep.py --dry-run       # print the commands only
+    python scripts/sweep.py --only baseline early-stop features-plus \
+        features-plus-early-stop features-plus-early-stop-reg
 
 Selection uses cross-validation on the 400 training rides; the 100 test rides are only reported,
 never used to choose (see docs/FINDINGS.md). The champion alias moves only if CV improves.
@@ -26,6 +28,14 @@ VARIANTS: dict[str, list[str]] = {
     "weight-decay-1e-3": ["train.weight_decay=0.001"],
     "regularised": ["model.dropout=0.5", "train.weight_decay=0.001", "train.epochs=50"],
     "no-class-weights": ["train.class_weighted_loss=false"],
+    # --- against overfitting (run alone with: --only baseline early-stop features-plus ...) ---
+    "early-stop": ["train.epochs=300", "train.early_stopping_patience=20"],
+    "features-plus": ["data.mode=aggregate_plus"],
+    "features-plus-early-stop": ["data.mode=aggregate_plus", "train.epochs=300",
+                                 "train.early_stopping_patience=20"],
+    "features-plus-early-stop-reg": ["data.mode=aggregate_plus", "train.epochs=300",
+                                     "train.early_stopping_patience=20", "model.dropout=0.5",
+                                     "train.weight_decay=0.001"],
 }
 
 
@@ -56,7 +66,7 @@ def main() -> None:
                               filter_string="tags.mlflow.runName LIKE 'sweep-%' and attributes.status = 'FINISHED'",
                               order_by=["metrics.cv_macro_f1_mean DESC"])
     cols = ["tags.mlflow.runName", "metrics.cv_macro_f1_mean", "metrics.cv_macro_f1_std",
-            "metrics.train_macro_f1", "metrics.overfit_gap_f1", "metrics.test_macro_f1"]
+            "metrics.train_macro_f1", "metrics.overfit_gap_f1", "metrics.test_macro_f1", "metrics.best_epoch"]
     print("\nRanked by CV macro-F1 (selection metric):")
     print(runs[[c for c in cols if c in runs]].round(3).to_string(index=False))
 

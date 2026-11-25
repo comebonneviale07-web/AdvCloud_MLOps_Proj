@@ -12,10 +12,14 @@ Data-quality decisions (see docs/FINDINGS.md):
 * missing sensor values (≈0.65 % of rows) are ignored by the aggregate
   statistics and linearly interpolated for the sequence model.
 
-Two input representations, selected by ``data.mode`` in the config:
+Three input representations, selected by ``data.mode`` in the config:
 
 * ``aggregate`` — mean, std, min, max, median of each sensor = 30 features per
   ride. Identical to ``research/prepare_features.py`` (the team's first model).
+* ``aggregate_plus`` — richer driving-style statistics (104 features): the 6 sensors
+  plus the acceleration and rotation magnitudes, each summarised by mean, std, min,
+  max, median, 5/25/75/95th percentiles, jerk (mean |Δ|, std Δ, max |Δ|) and the
+  share of peaks beyond 2 std. Aimed at the overfitting seen with ``aggregate``.
 * ``sequence`` — the whole ride resampled to ``seq_len`` steps × 6 sensors,
   for the 1D-CNN.
 """
@@ -30,6 +34,9 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 STATS = ("mean", "std", "min", "max", "median")
+PLUS_STATS = ("mean", "std", "min", "max", "median", "p05", "p25", "p75", "p95",
+              "jerk_abs_mean", "jerk_std", "jerk_abs_max", "peak_rate")
+AGGREGATE_MODES = ("aggregate", "aggregate_plus")
 
 
 def _fill_nan(points: np.ndarray) -> np.ndarray:
@@ -57,6 +64,26 @@ def aggregate_features(points: np.ndarray) -> np.ndarray:
     return np.nan_to_num(np.stack(stats, axis=1).reshape(-1)).astype(np.float32)
 
 
+def plus_channels(feature_columns: list[str]) -> list[str]:
+    """Sensors + magnitudes |a| (first 3 columns) and |r| (next 3) when 6 sensors are given."""
+    return list(feature_columns) + (["acc_mag", "rot_mag"] if len(feature_columns) == 6 else [])
+
+
+def aggregate_plus_features(points: np.ndarray) -> np.ndarray:
+    """(T, F) -> (13 * C,) with C = F (+2 magnitudes if F == 6), ordered channel-major."""
+    x = _fill_nan(np.asarray(points, dtype=np.float64))
+    if x.shape[1] == 6:
+        x = np.column_stack([x, np.linalg.norm(x[:, :3], axis=1), np.linalg.norm(x[:, 3:6], axis=1)])
+    jerk = np.diff(x, axis=0) if len(x) > 1 else np.zeros((1, x.shape[1]))
+    mean = x.mean(0)
+    std = x.std(0, ddof=1) if len(x) > 1 else np.zeros(x.shape[1])
+    p05, p25, med, p75, p95 = np.percentile(x, [5, 25, 50, 75, 95], axis=0)
+    peak = (np.abs(x - mean) > 2 * np.maximum(std, 1e-9)).mean(0)
+    stats = [mean, std, x.min(0), x.max(0), med, p05, p25, p75, p95,
+             np.abs(jerk).mean(0), jerk.std(0), np.abs(jerk).max(0), peak]
+    return np.nan_to_num(np.stack(stats, axis=1).reshape(-1)).astype(np.float32)
+
+
 @dataclass
 class Preprocessor:
     """Everything needed to turn one raw ride into a model input.
@@ -67,7 +94,7 @@ class Preprocessor:
 
     feature_columns: list[str]
     labels: list[str]
-    mode: str = "aggregate"           # "aggregate" | "sequence"
+    mode: str = "aggregate"           # "aggregate" | "aggregate_plus" | "sequence"
     seq_len: int = 1024
     mean: list[float] = field(default_factory=list)
     std: list[float] = field(default_factory=list)
@@ -75,12 +102,16 @@ class Preprocessor:
     @property
     def input_shape(self) -> tuple[int, ...]:
         n = len(self.feature_columns)
+        if self.mode == "aggregate_plus":
+            return (len(plus_channels(self.feature_columns)) * len(PLUS_STATS),)
         return (n * len(STATS),) if self.mode == "aggregate" else (self.seq_len, n)
 
     @property
     def input_names(self) -> list[str]:
         if self.mode == "aggregate":
             return [f"{c}_{s}" for c in self.feature_columns for s in STATS]
+        if self.mode == "aggregate_plus":
+            return [f"{c}_{s}" for c in plus_channels(self.feature_columns) for s in PLUS_STATS]
         return list(self.feature_columns)
 
     def _check(self, points: np.ndarray) -> np.ndarray:
@@ -104,6 +135,8 @@ class Preprocessor:
         """Representation before standardisation."""
         if self.mode == "aggregate":
             return aggregate_features(self._check(points))
+        if self.mode == "aggregate_plus":
+            return aggregate_plus_features(self._check(points))
         return self.resample(points)
 
     def transform(self, points: np.ndarray) -> np.ndarray:
