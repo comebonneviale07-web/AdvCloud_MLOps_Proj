@@ -1,11 +1,27 @@
+# Data (from Inside) — never committed
+data/raw/
+data/processed*/
+data/samples/
 *.parquet
 GBG500_labels.csv
+research/ride_features.csv
+research/feature_check.txt
+research/ride_check.txt
+research/data_inspection.txt
 
+# Generated models
+artifacts/
+mlruns/
+*.pt
+*.onnx
+
+# Python
 .venv/
-data_inspection.txt
-
-ride_features.csv
-feature_check.txt
-ride_check.txt
-
-ride_classifier.pt
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+.ruff_cache/
+.ipynb_checkpoints/
+mlflow.db
+mlartifacts/

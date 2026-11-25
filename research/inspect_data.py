@@ -5,10 +5,11 @@ import pyarrow.parquet as pq
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
+DATA_DIR = PROJECT_DIR.parent / "data" / "raw"  # datasets live in data/raw (git-ignored)
 
 
 def inspect_parquet(filename: str) -> None:
-    path = PROJECT_DIR / filename
+    path = DATA_DIR / filename
     parquet = pq.ParquetFile(path)
 
     print(f"\n{'=' * 60}")
@@ -33,7 +34,7 @@ def inspect_parquet(filename: str) -> None:
 
 
 def inspect_labels(filename: str) -> None:
-    path = PROJECT_DIR / filename
+    path = DATA_DIR / filename
     labels = pd.read_csv(path)
 
     print(f"\n{'=' * 60}")

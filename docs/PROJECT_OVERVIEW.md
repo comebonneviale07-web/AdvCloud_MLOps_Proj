@@ -1,8 +1,14 @@
 # Project overview and file guide
 
+> **Update (repository restructured):** the exploration scripts below now live in `research/` and read
+> the datasets from `data/raw/`. The production pipeline (MLflow, API, Docker, Kubernetes, CI/CD,
+> monitoring) is in `src/trajclf/` and described in the root `README.md`; the AI-infrastructure
+> contribution is in `ai-infrastructure/`. The assignment's workshop guide moved to
+> `ai-infrastructure/ASSIGNMENT.md`.
+
 ## Purpose
 
-This project builds a reproducible machine-learning pipeline to classify ride trajectories into five categories: Safe, Safe overall, Bad weather, Tandem, and Reckless. It uses sensor readings from the GBG500 dataset and explores how well different models distinguish these classes. The assignment also calls for experiment tracking, model storage, a prediction API, an interactive app, tests, a workflow, Docker, Kubernetes, and CI/CD. These components are planned; the current work covers data inspection, feature preparation, and initial model experiments.
+This project builds a reproducible machine-learning pipeline to classify ride trajectories into five categories: Safe, Safe overall, Bad weather, Tandem, and Reckless. It uses sensor readings from the GBG500 dataset and explores how well different models distinguish these classes. The assignment also calls for experiment tracking, model storage, a prediction API, an interactive app, tests, a workflow, Docker, Kubernetes, and CI/CD. These components are now implemented in `src/trajclf/` (see the root README); this file documents the initial research phase.
 
 The description in `data.txt` presents an anomaly-detection objective and says the GBG500 labels are for evaluation. The teacher subsequently confirmed that, although the original idea was unsupervised learning, supervised learning is permitted for this project. The current experiments therefore use the GBG500 labels for training and evaluation on separate rides.
 

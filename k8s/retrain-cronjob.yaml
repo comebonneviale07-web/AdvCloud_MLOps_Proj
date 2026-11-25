@@ -1,0 +1,20 @@
+# In-cluster retraining (alternative to the GitHub Actions retrain workflow).
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: trajclf-retrain, namespace: trajclf }
+spec:
+  schedule: "0 3 * * 1"     # Mondays 03:00
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: train
+              image: comebnvl/trajclf-train:latest
+              envFrom: [{ secretRef: { name: s3-credentials } }]
+              env:
+                - { name: MLFLOW_TRACKING_URI, value: "http://mlflow:5000" }
+                - { name: MLFLOW_S3_ENDPOINT_URL, value: "http://minio:9000" }
+                - { name: DATA_S3_URI, value: "s3://data/gbg500" }

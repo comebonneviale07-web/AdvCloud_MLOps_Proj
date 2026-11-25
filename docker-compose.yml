@@ -1,0 +1,82 @@
+# Local "dev" environment: MinIO (S3) + MLflow + API + web app + Prometheus + Grafana
+#   docker compose up -d minio mlflow                # 1. storage + tracking (bucket created by mlflow)
+#   make data train                                  # 2. train & register a champion
+#   docker compose up -d                             # 3. everything else
+x-s3-env: &s3-env
+  AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+  AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+  MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+
+services:
+  minio:
+    # MinIO removed its public images (Docker Hub + quay.io, Sept 2026) -> Chainguard build of MinIO.
+    image: cgr.dev/chainguard/minio:latest
+    user: "0:0"                     # Chainguard runs as uid 65532 by default; root avoids volume permission errors
+    command: ["server", "/data", "--address", ":9000", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [minio-data:/data]
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.22.0
+    depends_on: [minio]
+    environment: *s3-env
+    # 1) install boto3, 2) create the "mlflow" bucket (replaces the minio/mc container), 3) start the server
+    command:
+      - sh
+      - -c
+      - |
+        pip install --quiet boto3 && python - <<'PY'
+        import time, boto3
+        s3 = boto3.client("s3", endpoint_url="http://minio:9000")
+        for attempt in range(30):
+            try:
+                if "mlflow" not in [b["Name"] for b in s3.list_buckets()["Buckets"]]:
+                    s3.create_bucket(Bucket="mlflow")
+                print("bucket mlflow ready"); break
+            except Exception as e:
+                print("waiting for MinIO:", e); time.sleep(2)
+        PY
+        mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////mlflow/mlflow.db --artifacts-destination s3://mlflow/artifacts --serve-artifacts
+    ports: ["5000:5000"]
+    volumes: [mlflow-db:/mlflow]
+
+  api:
+    build: { context: ., dockerfile: Dockerfile.api }
+    image: ${DOCKERHUB_USER:-comebnvl}/trajclf-api:latest
+    depends_on: [mlflow]
+    environment:
+      <<: *s3-env
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_NAME: trajectory-classifier
+      MODEL_ALIAS: champion
+      MODEL_RUNTIME: ${MODEL_RUNTIME:-torch}
+    ports: ["8000:8000"]
+
+  webapp:
+    build: { context: ., dockerfile: Dockerfile.webapp }
+    image: ${DOCKERHUB_USER:-comebnvl}/trajclf-webapp:latest
+    depends_on: [api]
+    environment: { API_URL: "http://api:8000" }
+    ports: ["8501:8501"]
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes: [./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro]
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+
+volumes:
+  minio-data:
+  mlflow-db:

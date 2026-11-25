@@ -1,0 +1,35 @@
+# Retraining pipeline: retrieve data -> train -> register -> promote if better -> redeploy
+name: Retrain
+on:
+  schedule: [{ cron: "0 3 * * 1" }]
+  workflow_dispatch:
+jobs:
+  retrain:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Port-forward MLflow and MinIO from the cluster
+        run: |
+          kubectl -n trajclf port-forward svc/mlflow 5000:5000 > /dev/null 2>&1 &
+          kubectl -n trajclf port-forward svc/minio 9000:9000 > /dev/null 2>&1 &
+          sleep 5
+      - name: Train, register and promote
+        env:
+          MLFLOW_TRACKING_URI: http://localhost:5000
+          MLFLOW_S3_ENDPOINT_URL: http://localhost:9000
+          AWS_ACCESS_KEY_ID: ${{ secrets.MINIO_USER }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MINIO_PASSWORD }}
+          DATA_S3_URI: s3://data/gbg500
+          PYTHONPATH: src
+        run: |
+          python3 -m pip install -q -r requirements.txt
+          bash scripts/retrain.sh | tee retrain.log
+      - name: Redeploy API (pods reload models:/trajectory-classifier@champion)
+        if: success()
+        run: |
+          if grep -q "champion=True" retrain.log; then
+            kubectl -n trajclf rollout restart deploy/trajclf-api
+            kubectl -n trajclf rollout status deploy/trajclf-api --timeout=180s
+          else
+            echo "new model not better than champion: no redeploy"
+          fi

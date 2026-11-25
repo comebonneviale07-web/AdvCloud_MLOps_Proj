@@ -3,11 +3,12 @@ from pathlib import Path
 import pandas as pd
 
 PROJECT_DIR = Path(__file__).resolve().parent
+DATA_DIR = PROJECT_DIR.parent / "data" / "raw"  # datasets live in data/raw (git-ignored)
 SENSORS = ["ax", "ay", "az", "rx", "ry", "rz"]
 
 # Read the labeled dataset and its labels.
-rides = pd.read_parquet(PROJECT_DIR / "GBG500.parquet")
-labels = pd.read_csv(PROJECT_DIR / "GBG500_labels.csv")
+rides = pd.read_parquet(DATA_DIR / "GBG500.parquet")
+labels = pd.read_csv(DATA_DIR / "GBG500_labels.csv")
 
 # Compare ride IDs across the two files.
 data_ids = set(rides["ride_id"].dropna())

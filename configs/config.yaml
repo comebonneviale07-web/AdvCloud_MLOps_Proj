@@ -1,0 +1,40 @@
+# Default config = the team's first model (MLP on 30 aggregate features, docs/FINDINGS.md).
+# Sequence CNN variant: configs/config.cnn.yaml. Override path with TRAJCLF_CONFIG.
+project:
+  seed: 42
+  # Alphabetical order = LabelEncoder order used in research/ -> identical stratified split
+  labels: ["Bad weather", "Reckless", "Safe", "Safe overall", "Tandem"]
+
+data:
+  raw_path: data/raw/GBG500.parquet        # from Project.zip (Inside), git-ignored
+  labels_path: data/raw/GBG500_labels.csv
+  labels_id_column: RIDE_ID
+  labels_label_column: LABEL
+  processed_dir: data/processed
+  id_column: ride_id
+  time_column: time_index
+  label_column: LABEL
+  feature_columns: [ax, ay, az, rx, ry, rz]   # accelerometer + gyroscope
+  mode: aggregate          # aggregate (30 stats) | sequence (resampled time series)
+  seq_len: 1024            # only used in sequence mode
+  test_size: 0.2           # same held-out 100 rides as research/train_baseline.py
+  val_size: 0.0            # 0 = no validation split (model selection by CV, as in research/)
+
+model:
+  type: mlp
+  hidden: 64
+  dropout: 0.2
+
+train:
+  epochs: 100
+  batch_size: 32
+  lr: 0.001
+  weight_decay: 0.0          # L2 regularisation (Adam), tuned in scripts/sweep.py
+  num_workers: 0
+  class_weighted_loss: true   # Reckless = 6 rides out of 500
+
+mlflow:
+  tracking_uri: http://localhost:5000      # override with MLFLOW_TRACKING_URI
+  experiment: trajectory-classification
+  registered_model: trajectory-classifier
+  champion_alias: champion

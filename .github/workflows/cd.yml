@@ -1,0 +1,36 @@
+# Deploys to the local Kubernetes cluster (Docker Desktop) through a self-hosted runner.
+name: CD
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: self-hosted
+    env:
+      USER: ${{ secrets.DOCKERHUB_USERNAME }}
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ env.SHA }}" }
+      - name: Apply manifests
+        run: kubectl apply -k k8s/
+      - name: Deploy images tagged with the commit SHA
+        run: |
+          kubectl -n trajclf set image deploy/trajclf-api api=$USER/trajclf-api:$SHA
+          kubectl -n trajclf set image deploy/trajclf-webapp webapp=$USER/trajclf-webapp:$SHA
+          kubectl -n trajclf annotate deploy/trajclf-api kubernetes.io/change-cause="CD $SHA" --overwrite
+      - name: Wait for rollout (auto-rollback on failure)
+        run: |
+          if ! kubectl -n trajclf rollout status deploy/trajclf-api --timeout=180s; then
+            echo "::error::rollout failed, rolling back"
+            kubectl -n trajclf rollout undo deploy/trajclf-api
+            exit 1
+          fi
+      - name: Smoke test
+        run: |
+          kubectl -n trajclf port-forward svc/trajclf-api 18000:8000 & sleep 5
+          API_URL=http://localhost:18000 python3 -m pytest tests/e2e -m e2e -q || (kubectl -n trajclf rollout undo deploy/trajclf-api; exit 1)

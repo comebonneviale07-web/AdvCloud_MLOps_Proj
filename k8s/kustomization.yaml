@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: trajclf
+resources:
+  - namespace.yaml
+  - secrets.yaml
+  - minio.yaml
+  - mlflow.yaml
+  - api.yaml
+  - hpa.yaml
+  - webapp.yaml
+  - retrain-cronjob.yaml
+images:
+  - { name: comebnvl/trajclf-api, newTag: latest }
+  - { name: comebnvl/trajclf-webapp, newTag: latest }
+  - { name: comebnvl/trajclf-train, newTag: latest }

@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: trajclf-webapp, namespace: trajclf }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: trajclf-webapp } }
+  template:
+    metadata: { labels: { app: trajclf-webapp } }
+    spec:
+      containers:
+        - name: webapp
+          image: comebnvl/trajclf-webapp:latest
+          env: [{ name: API_URL, value: "http://trajclf-api:8000" }]
+          ports: [{ containerPort: 8501 }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: trajclf-webapp, namespace: trajclf }
+spec:
+  type: LoadBalancer
+  selector: { app: trajclf-webapp }
+  ports: [{ port: 8501, targetPort: 8501 }]
