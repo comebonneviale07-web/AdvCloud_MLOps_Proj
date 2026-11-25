@@ -11,7 +11,7 @@ jobs:
   deploy:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: self-hosted
-    timeout-minutes: 40   # first pull of the ~1 GB API image (PyTorch) is slow; later pulls reuse cached layers
+    timeout-minutes: 60   # pulling the ~600 MB API image (PyTorch) can take 10-20 min on this PC
     defaults:
       run:
         shell: powershell
@@ -22,31 +22,26 @@ jobs:
       - uses: actions/checkout@v4
         with: { ref: "${{ env.SHA }}" }
 
-      - name: Apply manifests
+      - name: Apply manifests with the images tagged with this commit SHA (one single rollout)
         run: |
           $ErrorActionPreference = 'Continue'
+          # pin the SHA tag in the runner's copy only: no intermediate rollout to :latest, clean rollback target
+          (Get-Content k8s/kustomization.yaml) -replace 'newTag: latest', "newTag: $env:SHA" |
+            Set-Content k8s/kustomization.yaml
           kubectl apply -k k8s/
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-
-      - name: Deploy the images tagged with this commit SHA
-        run: |
-          $ErrorActionPreference = 'Continue'
-          kubectl -n trajclf set image deploy/trajclf-api "api=$env:DOCKER_USER/trajclf-api:$env:SHA"
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          kubectl -n trajclf set image deploy/trajclf-webapp "webapp=$env:DOCKER_USER/trajclf-webapp:$env:SHA"
           if ($LASTEXITCODE -ne 0) { exit 1 }
           kubectl -n trajclf annotate deploy/trajclf-api "kubernetes.io/change-cause=CD $env:SHA" --overwrite
 
       - name: Wait for rollout (automatic rollback on failure)
         run: |
           $ErrorActionPreference = 'Continue'
-          kubectl -n trajclf rollout status deploy/trajclf-api --timeout=1200s
+          kubectl -n trajclf rollout status deploy/trajclf-api --timeout=1800s
           if ($LASTEXITCODE -ne 0) {
             Write-Output "::error::API rollout failed, rolling back"
             kubectl -n trajclf rollout undo deploy/trajclf-api
             exit 1
           }
-          kubectl -n trajclf rollout status deploy/trajclf-webapp --timeout=1200s
+          kubectl -n trajclf rollout status deploy/trajclf-webapp --timeout=1800s
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Smoke test (rollback if the API does not answer)

@@ -6,6 +6,7 @@ metadata:
   labels: { app: trajclf-api }
 spec:
   replicas: 2
+  progressDeadlineSeconds: 1800   # the ~600 MB API image (PyTorch) can take >10 min to pull
   revisionHistoryLimit: 5          # keeps old ReplicaSets for `kubectl rollout undo`
   strategy:
     type: RollingUpdate

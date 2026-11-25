@@ -3,6 +3,7 @@ kind: Deployment
 metadata: { name: trajclf-webapp, namespace: trajclf }
 spec:
   replicas: 1
+  progressDeadlineSeconds: 1800
   selector: { matchLabels: { app: trajclf-webapp } }
   template:
     metadata: { labels: { app: trajclf-webapp } }
