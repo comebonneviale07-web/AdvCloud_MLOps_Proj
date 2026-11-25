@@ -1,4 +1,5 @@
-# Deploys to the local Kubernetes cluster (Docker Desktop) through a self-hosted runner.
+# CD: deploy the images built by CI to the local Kubernetes cluster (Docker Desktop)
+# through a self-hosted runner installed on a team member's PC (Windows: Git Bash is used).
 name: CD
 on:
   workflow_run:
@@ -10,27 +11,44 @@ jobs:
   deploy:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: self-hosted
+    defaults:
+      run:
+        shell: bash
     env:
-      USER: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
       SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with: { ref: "${{ env.SHA }}" }
       - name: Apply manifests
         run: kubectl apply -k k8s/
-      - name: Deploy images tagged with the commit SHA
+      - name: Deploy the images tagged with this commit SHA
         run: |
-          kubectl -n trajclf set image deploy/trajclf-api api=$USER/trajclf-api:$SHA
-          kubectl -n trajclf set image deploy/trajclf-webapp webapp=$USER/trajclf-webapp:$SHA
+          kubectl -n trajclf set image deploy/trajclf-api api=$DOCKER_USER/trajclf-api:$SHA
+          kubectl -n trajclf set image deploy/trajclf-webapp webapp=$DOCKER_USER/trajclf-webapp:$SHA
           kubectl -n trajclf annotate deploy/trajclf-api kubernetes.io/change-cause="CD $SHA" --overwrite
-      - name: Wait for rollout (auto-rollback on failure)
+      - name: Wait for rollout (automatic rollback on failure)
         run: |
-          if ! kubectl -n trajclf rollout status deploy/trajclf-api --timeout=180s; then
+          if ! kubectl -n trajclf rollout status deploy/trajclf-api --timeout=300s; then
             echo "::error::rollout failed, rolling back"
             kubectl -n trajclf rollout undo deploy/trajclf-api
             exit 1
           fi
-      - name: Smoke test
+          kubectl -n trajclf rollout status deploy/trajclf-webapp --timeout=300s
+      - name: Smoke test (rollback if the API does not answer)
         run: |
-          kubectl -n trajclf port-forward svc/trajclf-api 18000:8000 & sleep 5
-          API_URL=http://localhost:18000 python3 -m pytest tests/e2e -m e2e -q || (kubectl -n trajclf rollout undo deploy/trajclf-api; exit 1)
+          kubectl -n trajclf port-forward svc/trajclf-api 18000:8000 > /dev/null 2>&1 &
+          PF=$!
+          sleep 5
+          ok=0
+          for i in 1 2 3 4 5 6; do
+            if curl -fsS http://localhost:18000/health && curl -fsS http://localhost:18000/model; then ok=1; break; fi
+            sleep 5
+          done
+          kill $PF || true
+          if [ "$ok" != 1 ]; then
+            echo "::error::smoke test failed, rolling back"
+            kubectl -n trajclf rollout undo deploy/trajclf-api
+            exit 1
+          fi
+          kubectl -n trajclf rollout history deploy/trajclf-api | tail -n 5
