@@ -1,35 +1,77 @@
-# Retraining pipeline: retrieve data -> train -> register -> promote if better -> redeploy
+# Retraining pipeline (MLOps bonus 1): retrieve data -> retrain -> register -> promote if better -> redeploy.
+# Runs on the self-hosted Windows runner, which can reach the local Kubernetes cluster (MLflow, MinIO, API).
 name: Retrain
 on:
-  schedule: [{ cron: "0 3 * * 1" }]
-  workflow_dispatch:
+  workflow_dispatch:                 # "Run workflow" button in the Actions tab
+  schedule:
+    - cron: "0 3 * * 1"              # every Monday 03:00 UTC (runs only if the runner PC is on)
+concurrency: retrain
 jobs:
   retrain:
     runs-on: self-hosted
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: powershell
+    env:
+      MLFLOW_TRACKING_URI: http://localhost:5000
+      MLFLOW_S3_ENDPOINT_URL: http://localhost:9000
+      PYTHONPATH: src
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
-      - name: Port-forward MLflow and MinIO from the cluster
+
+      - name: Open tunnels to MLflow and MinIO in the cluster
         run: |
-          kubectl -n trajclf port-forward svc/mlflow 5000:5000 > /dev/null 2>&1 &
-          kubectl -n trajclf port-forward svc/minio 9000:9000 > /dev/null 2>&1 &
-          sleep 5
-      - name: Train, register and promote
-        env:
-          MLFLOW_TRACKING_URI: http://localhost:5000
-          MLFLOW_S3_ENDPOINT_URL: http://localhost:9000
-          AWS_ACCESS_KEY_ID: ${{ secrets.MINIO_USER }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.MINIO_PASSWORD }}
-          DATA_S3_URI: s3://data/gbg500
-          PYTHONPATH: src
+          $ErrorActionPreference = 'Continue'
+          Start-Process kubectl -ArgumentList "-n","trajclf","port-forward","svc/mlflow","5000:5000" -WindowStyle Hidden
+          Start-Process kubectl -ArgumentList "-n","trajclf","port-forward","svc/minio","9000:9000" -WindowStyle Hidden
+          Start-Sleep -Seconds 8
+
+      - name: Python environment (cached in the runner's home)
         run: |
-          python3 -m pip install -q -r requirements.txt
-          bash scripts/retrain.sh | tee retrain.log
-      - name: Redeploy API (pods reload models:/trajectory-classifier@champion)
-        if: success()
+          $ErrorActionPreference = 'Continue'
+          $venv = "$HOME\trajclf-venv"
+          if (-not (Test-Path "$venv\Scripts\python.exe")) { py -3 -m venv $venv }
+          & "$venv\Scripts\python.exe" -m pip install -q --upgrade pip
+          & "$venv\Scripts\python.exe" -m pip install -q -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          "$venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: 1. Retrieve data from MinIO (s3://data/gbg500)
         run: |
-          if grep -q "champion=True" retrain.log; then
+          $ErrorActionPreference = 'Continue'
+          python scripts/data_s3.py download
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: 2. Preprocess
+        run: |
+          $ErrorActionPreference = 'Continue'
+          python -m trajclf.data
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: 3. Retrain, log to MLflow, register, promote if CV improves
+        run: |
+          $ErrorActionPreference = 'Continue'
+          python -m trajclf.train --run-name "retrain-$env:GITHUB_RUN_NUMBER" 2>&1 | Tee-Object -FilePath retrain.log
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: 4. Redeploy the API if a new champion was promoted
+        run: |
+          $ErrorActionPreference = 'Continue'
+          if (Select-String -Path retrain.log -Pattern "champion=True" -Quiet) {
+            Write-Output "New champion promoted: redeploying the API"
+            kubectl -n trajclf annotate deploy/trajclf-api "kubernetes.io/change-cause=Retrain run $env:GITHUB_RUN_NUMBER" --overwrite
             kubectl -n trajclf rollout restart deploy/trajclf-api
-            kubectl -n trajclf rollout status deploy/trajclf-api --timeout=180s
-          else
-            echo "new model not better than champion: no redeploy"
-          fi
+            kubectl -n trajclf rollout status deploy/trajclf-api --timeout=1200s
+            if ($LASTEXITCODE -ne 0) { kubectl -n trajclf rollout undo deploy/trajclf-api; exit 1 }
+          } else {
+            Write-Output "New model is not better than the champion (CV macro-F1): nothing to redeploy"
+          }
+
+      - name: Close tunnels
+        if: always()
+        run: |
+          Get-CimInstance Win32_Process -Filter "Name = 'kubectl.exe'" |
+            Where-Object { $_.CommandLine -match 'port-forward' } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }

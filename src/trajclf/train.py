@@ -164,18 +164,29 @@ def apply_overrides(cfg: dict, sets: list[str]) -> dict:
     return cfg
 
 
-def cross_validate(cfg: dict, splits: dict, device: torch.device, k: int) -> dict:
+def fold_standardise(raw: np.ndarray, fit_idx: np.ndarray) -> np.ndarray:
+    """Standardise all rides with mean/std computed on ``raw[fit_idx]`` only (no CV leakage)."""
+    flat = raw[fit_idx].reshape(-1, raw.shape[-1])
+    m, sd = flat.mean(0), flat.std(0) + 1e-6
+    return ((raw - m) / sd).astype(np.float32)
+
+
+def cross_validate(cfg: dict, splits: dict, device: torch.device, k: int, pre: Preprocessor) -> dict:
     """Stratified k-fold CV on the TRAINING rides only (model selection without touching the test set).
 
-    Note: the input standardisation was fitted on the whole training split, a small, documented
-    simplification; the test split is never used here.
+    No leakage inside CV: the standardisation is undone, then re-fitted in every fold on the
+    fitting part only, so the held-out fold never contributes to the mean/std it is scaled with.
     """
-    X, y = splits["X_train"], splits["y_train"]
+    mean = np.asarray(pre.mean, np.float32)
+    std = np.asarray(pre.std, np.float32)
+    raw = splits["X_train"] * std + mean          # back to unscaled features
+    y = splits["y_train"]
     n_classes = len(cfg["project"]["labels"])
     skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=cfg["project"]["seed"])
     scores = []
-    for fold, (fit_idx, val_idx) in enumerate(skf.split(X, y), 1):
+    for fold, (fit_idx, val_idx) in enumerate(skf.split(raw, y), 1):
         set_seed(cfg["project"]["seed"] + fold)
+        X = fold_standardise(raw, fit_idx)   # fitted on the fitting rides of this fold only
         fold_splits = {"X_train": X[fit_idx], "y_train": y[fit_idx],
                        "X_val": X[:0], "y_val": y[:0]}
         model, _ = train(cfg, fold_splits, device, verbose=False)
@@ -199,9 +210,9 @@ def fit_diagnostics(model: nn.Module, splits: dict, labels: list[str], device: t
     return out
 
 
-def selection_metric(metrics: dict) -> float:
-    """Champion selection uses cross-validation, never the test set (fallback for old runs)."""
-    return metrics.get("cv_macro_f1_mean", metrics.get("test_macro_f1", -1.0))
+def selection_metric(metrics: dict) -> float | None:
+    """Champion selection uses cross-validation only; the test split never decides (None = no CV)."""
+    return metrics.get("cv_macro_f1_mean")
 
 
 def promote_if_better(client, name: str, alias: str, version: str, score: float) -> bool:
@@ -250,7 +261,7 @@ def main() -> None:
     hw = hardware_info()
 
     if args.no_mlflow:
-        cv = cross_validate(cfg, splits, device, args.cv) if args.cv else {}
+        cv = cross_validate(cfg, splits, device, args.cv, pre) if args.cv else {}
         set_seed(cfg["project"]["seed"])
         model, stats = train(cfg, splits, device)
         ev = evaluate(model, splits, labels, device, cfg["project"]["seed"])
@@ -276,7 +287,7 @@ def main() -> None:
             mlflow.log_params({"data.n_rides": rs["n_rides"], "data.n_readings": rs["n_readings"],
                                "data.raw_file_mb": rs["raw_file_mb"]})
         mlflow.set_tags({f"hw.{k}": v for k, v in hw.items()})
-        cv = cross_validate(cfg, splits, device, args.cv) if args.cv else {}
+        cv = cross_validate(cfg, splits, device, args.cv, pre) if args.cv else {}
         set_seed(cfg["project"]["seed"])
         model, stats = train(cfg, splits, device, log=lambda mt, step: mlflow.log_metrics(mt, step=step))
         ev = evaluate(model, splits, labels, device, cfg["project"]["seed"])
@@ -296,8 +307,12 @@ def main() -> None:
                                         registered_model_name=m["registered_model"])
         client = MlflowClient()
         version = info.registered_model_version or client.get_latest_versions(m["registered_model"])[0].version
-        score = selection_metric({**cv, **ev})
-        promoted = promote_if_better(client, m["registered_model"], m["champion_alias"], str(version), score)
+        score = selection_metric(cv)
+        if score is None:  # trained with --cv 0: registered, but never promoted on the test score
+            promoted = False
+            mlflow.set_tag("promotion_skipped", "no cross-validation score")
+        else:
+            promoted = promote_if_better(client, m["registered_model"], m["champion_alias"], str(version), score)
         mlflow.set_tag("promoted_to_champion", promoted)
         print(f"run {run.info.run_id} -> version {version}, champion={promoted}, "
               f"cv_macro_f1={cv.get('cv_macro_f1_mean', float('nan')):.4f}, "
