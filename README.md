@@ -116,6 +116,13 @@ Run tracked in MLflow; the trained model is registered as `trajectory-classifier
 
 ![Swagger](docs/screenshots/swagger.png)
 
+### CI on GitHub Actions
+
+Every pull request runs `.github/workflows/ci.yml`: ruff lint + unit/integration tests (training, ONNX export,
+API) on a clean Ubuntu runner. Docker images are built and pushed to Docker Hub only on `main`.
+
+![CI checks on pull request #1](docs/screenshots/ci-checks.png)
+
 ### Production on Kubernetes (Docker Desktop)
 
 `kubectl apply -k k8s/` — MinIO, MLflow, API (2 replicas, rolling update, HPA 2→6), web app, retraining CronJob:
